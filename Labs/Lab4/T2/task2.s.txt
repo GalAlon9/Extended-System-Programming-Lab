@@ -1,0 +1,35 @@
+global  main            
+       section .data
+format  db      "%02hhx",10,0  ; prepering format for printf refernce from stack overflow
+formatd  db      "%d",10,0  ; prepering format for printf refernce from stack overflow
+        section .text
+        extern  printf
+        x_struct: dd 5
+        x_num: db 0xaa, 1,2,0x44,0x4f
+main:
+        push dword x_struct
+        call print_multi
+        pop ebx
+        ret
+
+print_multi:
+        push ebp
+        mov ebp, esp
+        mov esi, dword[ebp+8]
+        mov edi, dword[esi]    
+        add esi, 4
+
+start_loop:
+        xor     eax, eax            ; clean eax
+        push    dword [esi]     ; must dereference esi; points to argv
+        push    format
+        call    printf
+        add esp, 8
+        add esi, 1  ; advance to the next pointer in argv ;esi = ebx
+        dec edi ; decrement edi, used as counter ;edi = eax
+        cmp     edi, 0 
+        jnz start_loop
+end_loop:
+        xor     eax, eax        ; clean eax
+        leave
+        ret

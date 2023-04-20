@@ -1,0 +1,8 @@
+encoder: encoder.o
+	gcc encoder.o -o encoder
+
+encoder.o: encoder.c
+	gcc -c encoder.c
+
+clean:
+	rm *.o encoder

@@ -1,0 +1,243 @@
+#include "LineParser.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <linux/limits.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <signal.h>
+#include <errno.h>
+
+#define BUFF_SIZE 2048
+#define TERMINATED  -1
+#define RUNNING 1
+#define SUSPENDED 0
+
+int debug = 0;
+
+typedef struct process{
+    cmdLine* cmd;                           
+    pid_t pid; 		                        
+    int status;                             
+    struct process *next;	                
+} process;
+
+process* processList = NULL;
+
+void displayPrompt()
+{
+    char cwd[PATH_MAX];
+    getcwd(cwd, PATH_MAX);
+    printf("%s$ ", cwd);
+}
+
+process* process_list = NULL;
+
+void updateProcessList(process **);
+
+
+void addProcess(process** process_list, cmdLine* cmd, pid_t pid){
+    process *curr = *process_list;
+    process* new_process = malloc(sizeof(struct process));
+    new_process->cmd=cmd;
+    new_process->pid=pid;
+    new_process->status=RUNNING;
+    new_process->next=NULL;
+    if(curr==NULL){
+        *process_list=new_process;
+    }
+    else{
+        while(curr->next!=NULL)
+            curr=curr->next;
+        curr->next=new_process;
+    }
+}
+
+
+
+
+void deleteTerminatedProcesses(process** process_list){
+    //go over the list and delete all the terminated processes
+    process* curr_process = *process_list;
+    process* prev_process = NULL;
+    while(curr_process!=NULL){
+        if(curr_process->status==TERMINATED){
+            if(prev_process==NULL){
+                *process_list=curr_process->next;
+                freeCmdLines(curr_process->cmd);
+                curr_process->cmd=NULL;
+                curr_process->next=NULL;
+                free(curr_process);
+                curr_process=*process_list;
+            }
+            else{
+                prev_process->next=curr_process->next;
+                freeCmdLines(curr_process->cmd);
+                curr_process->cmd=NULL;
+                curr_process->next=NULL;
+                free(curr_process);
+                curr_process=prev_process->next;
+            }
+        }
+        else{
+            prev_process=curr_process;
+            curr_process=curr_process->next;
+        }
+    }
+
+}
+
+
+
+//update the status of the processes
+void updateProcessList(process **process_list){
+    process* curr = (*process_list);
+    while(curr!=NULL){
+        int status;
+        int wait_pid = waitpid(curr->pid,&status,WNOHANG);
+        if(wait_pid!=0){
+            if(WIFSTOPPED(status))
+              curr->status=SUSPENDED;
+            else if(WIFEXITED(status) || WIFSIGNALED(status))
+              curr->status=TERMINATED;
+            else if(WIFCONTINUED(status))
+              curr->status=RUNNING;
+        }
+        curr=curr->next;
+    }
+}
+
+/*print the processes*/
+void printProcessList(process** process_list){
+    updateProcessList(process_list);
+    printf("PID\t\tCommand\t\tSTATUS\n");
+    //print the processes
+    process* curr = *process_list;
+    while(curr!=NULL){
+        //print the process
+        printf("%d\t\t%s\t\t%s\n",curr->pid,curr->cmd->arguments[0],
+        curr->status==TERMINATED?"Terminated":curr->status==RUNNING?"Running":"Suspended");
+        curr=curr->next;
+    }
+    // while(deleteTerminatedProcesses(process_list)){};
+    deleteTerminatedProcesses(process_list);
+}
+
+void updateProcessStatus(process* process_list, int pid, int status){
+    process* curr = process_list;
+    while(curr!=NULL){
+        if(curr->pid==pid){
+            curr->status=status;
+            break;
+        }
+        curr=curr->next;
+    }
+}
+
+char* getProcessName(process* process_list, int pid){
+    process* curr = process_list;
+    while(curr!=NULL){
+        if(curr->pid==pid)
+            return curr->cmd->arguments[0];
+        curr=curr->next;
+    }
+    return NULL;
+}
+
+
+int isSpecialCommand(cmdLine* command){
+  int flag=0;
+
+  if(strcmp(command->arguments[0],"cd")==0){
+    flag=1;
+    if(chdir(command->arguments[1])<0)
+      perror("bad cd command");
+  }
+  else if(strcmp(command->arguments[0],"quit")==0){
+    flag=1;
+    _exit(0);
+  }
+  else if(strcmp(command->arguments[0],"procs")==0){
+    flag=1;
+    printProcessList(&process_list);
+  }
+  else if(strcmp(command->arguments[0],"kill")==0){
+    flag=1;
+    int pid = atoi(command->arguments[1]);
+    char *name = getProcessName(process_list,pid);
+    if (kill(pid, SIGINT) < 0)
+      perror("bad kill command");
+    else
+      printf("%s handling SIGINT\n", name);
+  }
+  else if(strcmp(command->arguments[0],"suspend")==0){
+    flag=1;
+    int pid = atoi(command->arguments[1]);
+    char *name = getProcessName(process_list,pid);
+    if(kill(pid,SIGTSTP)<0)
+      perror("bad suspend command");
+    else
+      printf("%s handling SIGTSTP\n", name);
+    updateProcessStatus(process_list,pid,SUSPENDED);
+  }
+  else if(strcmp(command->arguments[0],"wake")==0){
+    flag=1;
+    int pid = atoi(command->arguments[1]);
+    char *name = getProcessName(process_list,pid);
+    if(kill(pid,SIGCONT)<0)
+      perror("bad wake command");
+    else
+      printf("%s handling SIGCONT\n", name);
+    updateProcessStatus(process_list,pid,RUNNING);
+  }
+  
+  if(flag)
+    freeCmdLines(command);
+  return flag;
+}
+
+
+
+
+void execute(cmdLine* pCmdLine){
+  if(!isSpecialCommand(pCmdLine)){
+    int pid;
+    if(!(pid=fork())){
+        if(execvp(pCmdLine->arguments[0],pCmdLine->arguments)<0){
+          perror("bad command");
+          _exit(1);
+      }
+    }
+    if(pid!=-1)
+      addProcess(&process_list,pCmdLine,pid);
+    if(debug){
+      fprintf(stderr, "PID: %d\nExecuting command: %s\n",pid,pCmdLine->arguments[0]);
+    }
+    if(pCmdLine->blocking){   
+      waitpid(pid,NULL,0);
+    }
+  }
+}
+
+
+
+int main(int argc, char **argv)
+{
+    char buff[BUFF_SIZE];
+    if (argc > 1 && strcmp(argv[1], "-d") == 0)
+    {
+        debug = 1;
+        printf("Debug mode is on\n");
+    }
+
+
+    while (1)
+    {
+        displayPrompt();
+        fgets(buff, BUFF_SIZE, stdin);
+        cmdLine *parsedLine = parseCmdLines(buff);
+        execute(parsedLine);
+    }
+    return 0;
+}

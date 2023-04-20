@@ -1,0 +1,10 @@
+all:link
+
+link: compile
+	gcc -g -m32 -Wall task3.o -o task3
+
+compile: task3.s
+	 nasm -g -f elf -wall -o task3.o task3.s
+
+clean:
+	rm -f *.o

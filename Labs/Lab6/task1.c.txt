@@ -1,0 +1,78 @@
+#include "LineParser.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <linux/limits.h>
+
+
+#define BUFF_SIZE 2048
+int debug = 0;
+
+void displayPrompt()
+{
+    char cwd[PATH_MAX];
+    getcwd(cwd, PATH_MAX);
+    printf("%s$ ", cwd);
+}
+
+void execute(cmdLine *pCmdLine)
+{
+    int child;
+    if(! strcmp(pCmdLine->arguments[0], "cd") == 0)
+    {
+        child = fork();
+        if(!child){
+            if(execvp(pCmdLine->arguments[0], pCmdLine->arguments) < 0)
+            {
+                perror("Error, execvp failed");
+                _exit(1);
+            }
+        }
+    }
+    else{ // cd
+        if(chdir(pCmdLine->arguments[1]) < 0)
+        {
+            perror("Error, chdir failed");
+        }
+    }
+
+    if (debug)
+    {
+        fprintf(stderr, "PID: %d\n", child);
+        fprintf(stderr, "Executing command: %s\n", pCmdLine->arguments[0]);
+    }
+    if (pCmdLine->blocking)
+    {
+        printf("Waiting for child to finish\n");
+        waitpid(child, NULL, 0);
+    }
+}
+
+
+
+int main(int argc, char **argv)
+{
+    char buff[BUFF_SIZE];
+    if (argc > 1 && strcmp(argv[1], "-d") == 0)
+    {
+        debug = 1;
+        printf("Debug mode is on\n");
+    }
+
+
+    while (1)
+    {
+        displayPrompt();
+        fgets(buff, BUFF_SIZE, stdin);
+        cmdLine *parsedLine = parseCmdLines(buff);
+        if (strcmp(parsedLine->arguments[0], "quit") == 0)
+        {
+            freeCmdLines(parsedLine);
+            break;
+        }
+        execute(parsedLine);
+        freeCmdLines(parsedLine);
+    }
+    return 0;
+}

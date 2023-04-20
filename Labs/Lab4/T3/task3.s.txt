@@ -1,0 +1,155 @@
+global  main 
+global  print_multi            
+global  get_maxmin   
+
+
+section .data
+        
+        formatd  db      "%d",10,0              ; format for dec - from SO
+        format  db      "%02hhx",10,0           ; format for hexa - from SO
+
+section .text
+
+        extern malloc
+        extern  printf
+        extern free
+
+        x_struct: dd 6
+                x_val: db 1,0xf0,1,2,0x44,0x4f
+        y_struct: dd 5
+                y_val: db 1,1,2,0x44,1
+
+main:
+        push ebp
+        mov ebp, esp
+
+        push dword x_struct
+        push dword y_struct
+        
+        call add_multi
+
+print_multi:
+        push ebp
+        mov ebp, esp
+
+        pushad
+
+        mov esi, dword[ebp+8]
+        mov edi, dword[esi]    
+        add esi, 4
+
+start_loop:
+        xor     eax, eax            ; clean eax
+        push    dword [esi]           ; must dereference esi; points to argv
+        push    format
+        call    printf
+        add esp, 8
+        add esi, 1              ; advance to the next pointer in argv ;esi = ebx
+        dec edi                 ; decrement edi, used as counter ;edi = eax
+        cmp     edi, 0 
+        jnz start_loop
+        
+end_loop:
+        xor     eax, eax        ; clean eax
+        leave
+        call free
+        ret
+
+
+add_multi:
+      
+        push ebp                ;stack organize
+        mov ebp, esp            ;stack organize
+
+        pushad
+
+        mov eax, dword[ebp+8]   ;eax point to struct x
+        mov ebx, dword[ebp+12]  ;ebx point to to struct y
+        call get_maxmin        
+
+        mov edi, [eax]          ; edi - len of long
+        mov esi, [ebx]          ; esi - len of short
+
+        add edi, 4              ; edi is the new struct // add 4 for the len parameter and extra 1 for carry
+        add edi, 1
+
+        mov ecx, dword eax      ; ecx - point to the long struct 
+        push ecx
+        push edi
+
+        call malloc             ; allocate memory based on edi
+        add esp, 4              ;move stack pointer over 4 bytes (len argument) to the start of the new array
+        pop ecx                 
+        
+       
+
+                                ;registers state:
+                                ; ecx - is the pointer for long struct
+                                ; eax - is the pointer for the new memory allocated
+                                ; ebx - is the pointer for the short struct
+
+        sub edi, 2
+        sub edi, 2
+        mov [eax] ,dword edi 
+        mov edi ,1
+        
+
+loop_first_part:
+
+        mov edx , [edi*4 + ecx]                       
+        mov [edi*4 + eax] , edx
+        mov edx , [edi*4 + ebx]
+        adc [edi*4 + eax] , edx
+
+        add edi, 1 
+
+        mov edx, [ebx]
+        cmp edi, edx 
+        jnz loop_first_part
+
+                        ;registers state:
+                        ; ebx - pointer to short struct
+                        ; ecx - pointer to long struct 
+                        ; edi - counter 
+                        ; eax - pointer to the allocated memory.
+        
+        ;pop ebp
+
+       
+loop_second_part:
+
+        mov edx , [edi*4 + ecx]
+        mov [edi*4 + eax] , edx
+        xor edx, edx
+        
+        adc [edi*4 + eax], edx
+        add edi, 1
+        mov edx, [ecx]
+        cmp edi, edx
+        jnz loop_second_part
+        
+        xor edx, edx
+        adc [edi*4  + eax], edx
+
+
+        mov esp, ebp
+        pop ebp
+        ret
+
+get_maxmin:
+
+        mov ecx, [ebx]
+        mov edx, [eax]
+        cmp ecx, edx
+        jg switcher
+        ret
+
+switcher:
+
+        mov ecx, ebx            ;switch registers
+        mov ebx, eax
+        mov eax, ecx
+        ret
+
+
+

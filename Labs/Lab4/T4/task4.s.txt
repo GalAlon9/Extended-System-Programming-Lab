@@ -1,0 +1,38 @@
+global main
+global parity
+extern printf
+MASK EQU 0x002C
+
+section .data
+
+	state: dw 0x5124
+	str : db "%x",10,0
+
+section .text
+
+main:
+	mov esi,20	
+	mov eax,0
+	mov edi,0
+	
+
+loop:
+	
+	mov ax ,MASK
+	xor ax,[state]
+	jpe parity
+	stc 
+
+parity:
+
+	 inc edi
+	 rcr word[state],1
+	 pushad
+	 push eax
+	 push str
+	 call printf
+	 add esp,8
+	 popad
+	 cmp edi,esi
+	 jnz loop
+	 ret
